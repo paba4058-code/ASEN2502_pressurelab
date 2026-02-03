@@ -27,14 +27,29 @@ Nlower = zeros(24,1);
 Aupper = zeros(24,1);
 Alower = zeros(24,1);
 
+
+deltax = deltax / chordL;
+deltay = deltay / chordL;
+
+
 %% Calculations
-T_K = T + 273.15;            % Convert to Kelvin
+T_K = T + 273.15;
 density = P ./ (287 .* T_K);
 
 densityavg = mean(density);
-freeV = sqrt(2 .* dynamicPressure ./ density);
+freeV = sqrt(2 * dynamicPressure ./ density);
 freeVavg = mean(freeV);
 ReNumber = densityavg * freeVavg * chordL / visc;
+
+% coeff of pressure calculation
+
+for i=1:17
+pressurecoeftemp(:,i) = (portdata(:,i) - testP) ./ dynamicPressure;
+end
+
+pressurecoeftemp(:,10) = 0;
+pressurecoef = pressurecoeftemp';
+
 
 % Normal and axial trapezoidal approximations
 numTests = size(portdata,1);
@@ -48,21 +63,28 @@ for j = 1:numTests
 
     % Upper surface
     for i = 1:10
-        p1 = portdata(j,i);
-        p2 = portdata(j,i+1);
+        p1 = pressurecoef(i,j);
+        p2 = pressurecoef(i+1,j);
 
         Nupper(j) = Nupper(j) - 0.5*(p1 + p2)*deltax(i);
-        Aupper(j) = Aupper(j) - 0.5*(p1 + p2)*deltay(i);
+        Aupper(j) = Aupper(j) + 0.5*(p1 + p2)*deltay(i);
     end
 
     %  Lower surface
-    for i = 10:16
-        p1 = portdata(j,i);
-        p2 = portdata(j,i+1);
+    for i = 10:17-1
 
-        Nlower(j) = Nlower(j) - 0.5*(p1 + p2)*deltax(i);
+        p1 = pressurecoef(i,j);
+        p2 = pressurecoef(i+1,j);
+
+        Nlower(j) = Nlower(j) + 0.5*(p1 + p2)*deltax(i);
         Alower(j) = Alower(j) - 0.5*(p1 + p2)*deltay(i);
     end
+
+    Nupper(j) = Nupper(j) * dynamicPressure(j);
+Aupper(j) = Aupper(j) * dynamicPressure(j);
+Nlower(j) = Nlower(j) * dynamicPressure(j);
+Alower(j) = Alower(j) * dynamicPressure(j);
+
 end
 
 
@@ -71,14 +93,6 @@ Atotal = Aupper + Alower;
 
 totalLift = Ntotal .* cosd(alpha) - Atotal .* sind(alpha);
 
-% coeff of pressure calculation
-
-for i=1:17
-pressurecoeftemp(:,i) = (portdata(:,i) - testP) ./ dynamicPressure;
-end
-
-pressurecoeftemp(:,10) = 0;
-pressurecoef = pressurecoeftemp';
 
 % coeff of lift calc
 
@@ -86,50 +100,80 @@ liftcoeff1 =(dynamicPressure * chordL);
 liftcoeff = totalLift ./ liftcoeff1;
 
 %% Post Processing
-numTests = size(pressurecoef, 2);
-
-nCols = ceil(sqrt(numTests));
-nRows = ceil(numTests / nCols);
+numTests = 3;
 
 figure
-tiledlayout(nRows, nCols, ...
+tiledlayout(1, numTests, ...
     'TileSpacing','compact', ...
     'Padding','compact')
+
 cpMin = min(pressurecoef,[],'all');
 cpMax = max(pressurecoef,[],'all');
-upperIdx = 1:10;      % upper surface ports
-lowerIdx = 10:17;   % lower surface ports
 
+% Wrapped Cp and x/c (all tests at once)
+cpWrap = [
+    pressurecoef(1:9, :);
+    pressurecoef(10, :);
+    pressurecoef(11:17, :);
+    pressurecoef(1, :)
+];
 
-for k = 1:numTests
-    nexttile
-    hold on
+xWrap = [
+    portloc(1:9);
+    portloc(10);
+    portloc(11:17);
+    portloc(1)
+];
 
-    upperCp = pressurecoef(upperIdx, k);
-    lowerCp = pressurecoef(lowerIdx, k);
+% alpha ≈ -3 deg (near zero lift)
+k = 6;
+nexttile
+hold on
+plot(xWrap(1:10,:), cpWrap(1:10,k), 'r-o','LineWidth',1.2)
+plot(xWrap(10:18,:), cpWrap(10:18,k), 'b-s','LineWidth',1.2)
+set(gca,'YDir','reverse')
+ylim([cpMin cpMax])
+grid on
+title('Angle of Attack = -3 (Lift \approx 0)')
+xlabel('x/c')
+ylabel('C_p')
 
-    upperX = portloc(upperIdx);
-    lowerX = portloc(lowerIdx);
+% alpha = 8 deg
+k = 17;
+nexttile
+hold on
+plot(xWrap(1:10,:), cpWrap(1:10,k), 'r-o','LineWidth',1.2)
+plot(xWrap(10:18,:), cpWrap(10:18,k), 'b-s','LineWidth',1.2)
+set(gca,'YDir','reverse')
+ylim([cpMin cpMax])
+grid on
+title('Angle of Attack = 8')
+xlabel('x/c')
+ylabel('C_p')
 
-    h1 = plot(portloc(upperIdx), pressurecoef(upperIdx,k), 'r-o','LineWidth',1.2);
-    h2 = plot(portloc(lowerIdx), pressurecoef(lowerIdx,k), 'b-s','LineWidth',1.2);
-    set(gca,'YDir','reverse')
-    ylim([cpMin cpMax])
-    grid on
-
-    title(sprintf('\\alpha = %g^\\circ', data{k,1}))  
-    xlabel('x/c')
-    ylabel('C_p')
-    
-    hold off
-end
-
-legend([h1 h2], 'Upper surface', 'Lower surface', 'Location','bestoutside')
+% alpha = 10 deg (post-stall)
+k = 19;
+nexttile
+hold on
+plot(xWrap(1:10,:), cpWrap(1:10,k), 'r-o','LineWidth',1.2)
+plot(xWrap(10:18,:), cpWrap(10:18,k), 'b-s','LineWidth',1.2)
+set(gca,'YDir','reverse')
+ylim([cpMin cpMax])
+grid on
+title('Angle of Attack = 10 (Post-stall)')
+xlabel('x/c')
+ylabel('C_p')
+legend('Upper Surface','Lower Surface')
 
 figure
 plot(alpha, liftcoeff, 'o-','LineWidth',1.5)
+title('Coefficient of Lift over 24 angle of attack tests')
 xlabel('\alpha (deg)')
-ylabel('Lift (pressure integrated)')
+ylabel('Lift coefficient')
 grid on
 
-
+figure
+plot(alpha, totalLift, 'o-','LineWidth',1.5)
+xlabel('\alpha (deg)')
+ylabel('Lift')
+grid on
